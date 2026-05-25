@@ -23,7 +23,11 @@ const register = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     if (!data.userName || !data.email || !data.password || !data.otp) {
@@ -40,7 +44,11 @@ const sendOTP = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     if (!data.email || !data.userName) {
@@ -57,7 +65,11 @@ const login = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     const result = await userService.loginService(data);
@@ -95,7 +107,11 @@ const updateMe = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     const result = await userService.updateMeService(user, data);
@@ -123,7 +139,11 @@ const adminUpdateUser = async (req, res, id, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     const result = await userService.adminUpdateUserService(id, data);

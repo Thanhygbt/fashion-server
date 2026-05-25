@@ -10,8 +10,12 @@ function parseBody(body, res) {
     try {
         return JSON.parse(body);
     } catch {
-        sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
-        return null;
+        try {
+            return Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+            return null;
+        }
     }
 }
 

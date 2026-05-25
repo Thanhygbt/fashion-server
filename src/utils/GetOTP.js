@@ -41,7 +41,15 @@ async function sendOTP(email) {
         return otp;
     } catch (error) {
         console.error("Lỗi gửi mail qua Nodemailer:", error);
-        throw error;
+        // In production we propagate the error so callers can handle it as a failure.
+        // In development (or when NODE_ENV !== 'production') we fallback: log the OTP
+        // and return it so the flow can continue for testing without valid mail creds.
+        if (process.env.NODE_ENV === "production") {
+            throw error;
+        }
+
+        console.warn(`FALLBACK: nodemailer failed, returning generated OTP for ${email}:`, otp);
+        return otp;
     }
 }
 

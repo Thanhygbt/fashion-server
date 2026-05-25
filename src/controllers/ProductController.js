@@ -74,8 +74,12 @@ const createProduct = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ message: "Thiếu dữ liệu JSON" }));
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            return res.end(JSON.stringify({ message: "Thiếu dữ liệu JSON" }));
+        }
     }
 
     try {
@@ -96,8 +100,12 @@ const updateProduct = async (req, res, id, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ message: "Thiếu dữ liệu JSON" }));
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            return res.end(JSON.stringify({ message: "Thiếu dữ liệu JSON" }));
+        }
     }
 
     try {

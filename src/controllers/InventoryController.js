@@ -32,7 +32,11 @@ const adjustInventory = async (req, res, body) => {
     try {
         data = JSON.parse(body);
     } catch {
-        return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        try {
+            data = Object.fromEntries(new URLSearchParams(body));
+        } catch {
+            return sendJson(res, 400, { message: "Thiếu dữ liệu JSON" });
+        }
     }
 
     const result = await inventoryService.adjustInventoryService(data);
