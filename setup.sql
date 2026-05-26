@@ -1,17 +1,9 @@
-﻿SET NAMES utf8mb4;
+﻿USE lmn_fashion;
+SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
-DROP TABLE IF EXISTS inventory_logs;
-DROP TABLE IF EXISTS order_items;
-DROP TABLE IF EXISTS orders;
-DROP TABLE IF EXISTS reviews;
-DROP TABLE IF EXISTS coupons;
-DROP TABLE IF EXISTS products;
-DROP TABLE IF EXISTS categories;
-DROP TABLE IF EXISTS otps;
-DROP TABLE IF EXISTS users;
 
-SET FOREIGN_KEY_CHECKS = 1;
+
 
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -192,3 +184,4 @@ INSERT INTO products (name, description, price, image_url, category_id, stock_qu
 INSERT INTO coupons (code, discount_type, discount_value, min_order_amount, usage_limit, expires_at) VALUES
     ('WELCOME10', 'percent', 10, 500000, 100, '2027-12-31 23:59:59'),
     ('SAVE200K', 'fixed', 200000, 1500000, 50, '2027-12-31 23:59:59');
+SET FOREIGN_KEY_CHECKS = 1;
