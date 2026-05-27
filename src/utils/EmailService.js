@@ -11,7 +11,7 @@ if (!emailConfigured) {
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
-    secure: true, // Dùng SSL cho port 465
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
@@ -20,11 +20,9 @@ const transporter = nodemailer.createTransport({
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
     },
-    // Cấu hình timeout dài hơn cho Render
-    connectionTimeout: 30000, // 30 giây
-    socketTimeout: 30000,     // 30 giây
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
     greetingTimeout: 30000,
-    // Pool connection để tái sử dụng
     pool: {
         maxConnections: 3,
         maxMessages: 100,
@@ -37,11 +35,10 @@ function formatCurrency(value) {
     return Number(value || 0).toLocaleString("vi-VN") + " VNĐ";
 }
 
-// Hàm gửi email với retry logic
+// Hàm gửi email với retry logic - fallback gracefully khi fail
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
-    // Nếu không có email config, không gửi nhưng không throw error
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
         console.warn("[SKIP] Email not configured. Skipping email send to:", mailOptions.to);
         return { messageId: "DEMO_MODE" };
@@ -55,7 +52,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
             return result;
         } catch (error) {
             lastError = error;
-
             console.error(`[Email] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
@@ -64,7 +60,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
             });
 
             if (attempt < maxRetries) {
-                // Chờ trước khi retry (exponential backoff)
                 const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
                 console.log(`[Email] Retrying in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -72,25 +67,18 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
         }
     }
 
-    // Format error message based on error code
-    let errorMessage = `Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
-
-    if (lastError?.code === 'ETIMEDOUT') {
-        errorMessage = "Email server connection timeout. Please check network connectivity and try again.";
-    } else if (lastError?.code === 'ECONNREFUSED') {
-        errorMessage = "Email server connection refused. Please verify SMTP settings.";
-    } else if (lastError?.code === 'ENOTFOUND') {
-        errorMessage = "Email server not found. Check SMTP host configuration.";
-    } else if (lastError?.code === 'EAUTH' || lastError?.message?.includes('Invalid login')) {
-        errorMessage = "Email authentication failed. Please verify EMAIL_USER and EMAIL_PASS are correct.";
-    } else if (lastError?.responseCode === 535) {
-        errorMessage = "Email authentication failed. Incorrect credentials or Gmail App Password required.";
+    let errorMessage = `Failed to send email after ${maxRetries} attempts`;
+    if (lastError?.code === 'ETIMEDOUT' || lastError?.code === 'ENETUNREACH') {
+        errorMessage = "Network unreachable - email service may be blocked on this server";
     }
 
-    // Log error nhưng không throw - cho phép order được tạo dù email fail
     console.error("[Email] Final error after all retries:", errorMessage);
     // Fallback: không throw error, cho phép quy trình tiếp tục
-    return { messageId: "FAILED_BUT_CONTINUED" };
+    return { messageId: "FAILED_BUT_CONTINUED", error: errorMessage };
+}
+
+async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, items, totalAmount, address, phone, paymentMethod }) {
+    const methodLabel = "Thanh toan khi nhan hang (COD)";
 
     const itemsHtml = (items || []).map(item => `
         <tr>
@@ -105,21 +93,15 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
 
     const html = `
         <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 640px; margin: auto; background: #fff; color: #111;">
-
-            <!-- Header -->
             <div style="background: #000; padding: 40px 48px; text-align: center;">
                 <h1 style="color: #fff; font-size: 36px; letter-spacing: 8px; margin: 0; font-weight: 900;">LMN</h1>
                 <p style="color: rgba(255,255,255,0.6); font-size: 11px; letter-spacing: 3px; text-transform: uppercase; margin: 8px 0 0;">FASHION</p>
             </div>
-
-            <!-- Body -->
             <div style="padding: 48px;">
                 <h2 style="font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin: 0 0 8px;">Đặt Hàng Thành Công</h2>
                 <p style="color: #666; font-size: 14px; margin: 0 0 32px;">
                     Xin chào <strong>${customerName || "Quý khách"}</strong>, cảm ơn bạn đã tin tưởng mua sắm tại LMN Fashion.
                 </p>
-
-                <!-- Order Info -->
                 <div style="background: #f9f9f9; padding: 20px 24px; border-left: 3px solid #000; margin-bottom: 32px;">
                     <table style="width: 100%; font-size: 14px;">
                         <tr>
@@ -140,8 +122,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
                         </tr>
                     </table>
                 </div>
-
-                <!-- Items Table -->
                 <table style="width: 100%; font-size: 14px; border-collapse: collapse; margin-bottom: 24px;">
                     <thead>
                         <tr style="background: #000; color: #fff; text-transform: uppercase; font-size: 12px; letter-spacing: 1px;">
@@ -155,20 +135,15 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
                         ${itemsHtml}
                     </tbody>
                 </table>
-
-                <!-- Total -->
                 <div style="text-align: right; margin-bottom: 40px;">
                     <span style="font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px;">Tổng cộng: </span>
                     <span style="font-size: 22px; font-weight: 900; color: #000;">${formatCurrency(totalAmount)}</span>
                 </div>
-
                 <p style="font-size: 13px; color: #666; line-height: 1.7; border-top: 1px solid #eee; padding-top: 24px;">
                     Chúng tôi sẽ xử lý đơn hàng của bạn sớm nhất có thể. Nếu có thắc mắc, vui lòng liên hệ
                     <a href="mailto:support@lmnfashion.com" style="color: #000;">support@lmnfashion.com</a>.
                 </p>
             </div>
-
-            <!-- Footer -->
             <div style="background: #f5f5f5; padding: 24px 48px; text-align: center; font-size: 11px; color: #999; letter-spacing: 1px; text-transform: uppercase;">
                 © 2026 LMN Fashion — Minimalist Essence Since 2024
             </div>
