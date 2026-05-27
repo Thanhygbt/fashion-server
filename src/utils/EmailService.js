@@ -1,11 +1,17 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // Bắt buộc phải là false khi dùng port 587
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
+    // Thêm tùy chọn TLS này để tránh lỗi chứng chỉ nếu có
+    tls: {
+        rejectUnauthorized: false
+    }
 });
 
 function formatCurrency(value) {
