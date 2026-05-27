@@ -1,59 +1,56 @@
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const resendFrom = process.env.RESEND_FROM || "onboarding@resend.dev";
-const resendConfigured = !!process.env.RESEND_API_KEY;
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+const smtpConfigured = !!(emailUser && emailPass);
 
-if (!resendConfigured) {
-    console.warn("[WARNING] Missing RESEND_API_KEY. Email sending will be disabled.");
+let transporter;
+if (smtpConfigured) {
+    transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false, // STARTTLS
+        auth: {
+            user: emailUser,
+            pass: emailPass
+        },
+        connectionTimeout: 10000, // 10s để kết nối
+        greetingTimeout: 10000,   // 10s để nhận greeting
+        socketTimeout: 15000,     // 15s idle timeout
+        tls: {
+            rejectUnauthorized: false
+        }
+    });
+    console.log("[INFO] SMTP (Gmail) Transporter configured for user:", emailUser);
 } else {
-    console.log("[INFO] Resend configured. RESEND_FROM:", resendFrom);
+    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS. Email sending disabled.");
 }
 
 function generateOTP() {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-// Bọc promise với timeout để tránh hang vô tận
-function withTimeout(promise, ms, label) {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-            reject(new Error(`[TIMEOUT] ${label} timed out after ${ms}ms`));
-        }, ms);
-        promise.then(
-            (val) => { clearTimeout(timer); resolve(val); },
-            (err) => { clearTimeout(timer); reject(err); }
-        );
-    });
-}
-
-// Hàm gửi email với retry logic
 async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
     let lastError;
 
-    if (!resendConfigured) {
-        console.warn("[SKIP] Resend not configured. Returning fallback mode.");
-        return { messageId: "FALLBACK_MODE", error: "RESEND_API_KEY not configured" };
+    if (!smtpConfigured) {
+        console.warn("[SKIP] SMTP not configured. Returning fallback mode.");
+        return { messageId: "FALLBACK_MODE", error: "SMTP configuration not found" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[OTP] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
-            const result = await withTimeout(
-                resend.emails.send({
-                    from: resendFrom,
-                    to: mailOptions.to,
-                    subject: mailOptions.subject,
-                    html: mailOptions.html
-                }),
-                10000, // 10 giây timeout
-                `sendMail to ${mailOptions.to}`
-            );
-            console.log(`[OTP] Successfully sent OTP email to ${mailOptions.to}`, result?.data?.id || "unknown");
-            return { messageId: result?.data?.id || "resend" };
+            const result = await transporter.sendMail({
+                from: `"LMN Fashion" <${emailUser}>`,
+                to: mailOptions.to,
+                subject: mailOptions.subject,
+                html: mailOptions.html
+            });
+            console.log(`[OTP] Successfully sent OTP email to ${mailOptions.to}`, result?.messageId || "unknown");
+            return { messageId: result?.messageId || "smtp" };
         } catch (error) {
             lastError = error;
-
             console.error(`[OTP] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
@@ -61,7 +58,7 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
             });
 
             if (attempt < maxRetries) {
-                const delayMs = 1000;
+                const delayMs = 2000;
                 console.log(`[OTP] Retrying in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
@@ -69,15 +66,15 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
     }
 
     const errorMessage = `Failed to send OTP email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
-    console.warn(`[OTP] Falling back to demo mode due to: ${lastError?.message || 'Unknown error'}`);
+    console.warn(`[OTP] Falling back: ${errorMessage}`);
     return { messageId: "FALLBACK_MODE", error: errorMessage };
 }
 
 async function sendOTP(email) {
     const otp = generateOTP();
 
-    if (!resendConfigured) {
-        console.log(`[DEMO MODE] Resend not configured. OTP for ${email}: ${otp}`);
+    if (!smtpConfigured) {
+        console.log(`[DEMO MODE] SMTP not configured. OTP for ${email}: ${otp}`);
         return otp;
     }
 
@@ -101,12 +98,12 @@ async function sendOTP(email) {
 
     const result = await sendEmailWithRetry(mailOptions);
 
-    if (result.messageId === 'FALLBACK_MODE' || result.messageId === 'FAILED_BUT_CONTINUED') {
+    if (result.messageId === "FALLBACK_MODE" || result.messageId === "FAILED_BUT_CONTINUED") {
         console.log(`[FALLBACK] OTP for ${email}: ${otp} - Email send failed, returning OTP for testing`);
         return otp;
     }
 
-    console.log(`OTP sent via Resend to ${email}: ${otp}`);
+    console.log(`OTP sent via Gmail SMTP to ${email}: ${otp}`);
     return otp;
 }
 
