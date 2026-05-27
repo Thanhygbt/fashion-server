@@ -1,13 +1,22 @@
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const resendFrom = process.env.RESEND_FROM || "onboarding@resend.dev";
-const resendConfigured = !!process.env.RESEND_API_KEY;
+const emailService = process.env.EMAIL_SERVICE || "gmail";
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+const smtpConfigured = !!(emailUser && emailPass);
 
-if (!resendConfigured) {
-    console.warn("[WARNING] Missing RESEND_API_KEY. Email sending will be disabled.");
+let transporter;
+if (smtpConfigured) {
+    transporter = nodemailer.createTransport({
+        service: emailService,
+        auth: {
+            user: emailUser,
+            pass: emailPass
+        }
+    });
+    console.log("[INFO] SMTP Transporter configured for user:", emailUser);
 } else {
-    console.log("[INFO] Resend configured. RESEND_FROM:", resendFrom);
+    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS. SMTP email sending will be disabled.");
 }
 
 function formatCurrency(value) {
@@ -18,29 +27,28 @@ function formatCurrency(value) {
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
-    if (!resendConfigured) {
-        console.warn("[SKIP] Resend not configured. Skipping email send to:", mailOptions.to);
+    if (!smtpConfigured) {
+        console.warn("[SKIP] SMTP not configured. Skipping email send to:", mailOptions.to);
         return { messageId: "DEMO_MODE" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[Email] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
-            const result = await resend.emails.send({
-                from: resendFrom,
+            const result = await transporter.sendMail({
+                from: mailOptions.from || `"LMN Fashion" <${emailUser}>`,
                 to: mailOptions.to,
                 subject: mailOptions.subject,
                 html: mailOptions.html
             });
-            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result?.data?.id || "unknown");
-            return { messageId: result?.data?.id || "resend" };
+            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result?.messageId || "unknown");
+            return { messageId: result?.messageId || "smtp" };
         } catch (error) {
             lastError = error;
             console.error(`[Email] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
-                name: error.name,
-                statusCode: error.statusCode
+                name: error.name
             });
 
             if (attempt < maxRetries) {
