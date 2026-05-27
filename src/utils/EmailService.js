@@ -1,35 +1,14 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-// Verify config trên startup
-const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-if (!emailConfigured) {
-    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS environment variables. Email sending will be disabled.");
+const resend = new Resend(process.env.RESEND_API_KEY);
+const resendFrom = process.env.RESEND_FROM || "onboarding@resend.dev";
+const resendConfigured = !!process.env.RESEND_API_KEY;
+
+if (!resendConfigured) {
+    console.warn("[WARNING] Missing RESEND_API_KEY. Email sending will be disabled.");
 } else {
-    console.log("[INFO] Email credentials configured. EMAIL_USER:", process.env.EMAIL_USER);
+    console.log("[INFO] Resend configured. RESEND_FROM:", resendFrom);
 }
-
-const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-    tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-    },
-    connectionTimeout: 30000,
-    socketTimeout: 30000,
-    greetingTimeout: 30000,
-    pool: {
-        maxConnections: 3,
-        maxMessages: 100,
-        rateDelta: 1000,
-        rateLimit: 5
-    }
-});
 
 function formatCurrency(value) {
     return Number(value || 0).toLocaleString("vi-VN") + " VNĐ";
@@ -39,24 +18,29 @@ function formatCurrency(value) {
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.warn("[SKIP] Email not configured. Skipping email send to:", mailOptions.to);
+    if (!resendConfigured) {
+        console.warn("[SKIP] Resend not configured. Skipping email send to:", mailOptions.to);
         return { messageId: "DEMO_MODE" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[Email] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
-            const result = await transporter.sendMail(mailOptions);
-            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result.messageId);
-            return result;
+            const result = await resend.emails.send({
+                from: resendFrom,
+                to: mailOptions.to,
+                subject: mailOptions.subject,
+                html: mailOptions.html
+            });
+            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result?.data?.id || "unknown");
+            return { messageId: result?.data?.id || "resend" };
         } catch (error) {
             lastError = error;
             console.error(`[Email] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
-                command: error.command,
-                responseCode: error.responseCode
+                name: error.name,
+                statusCode: error.statusCode
             });
 
             if (attempt < maxRetries) {
@@ -67,10 +51,7 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
         }
     }
 
-    let errorMessage = `Failed to send email after ${maxRetries} attempts`;
-    if (lastError?.code === 'ETIMEDOUT' || lastError?.code === 'ENETUNREACH') {
-        errorMessage = "Network unreachable - email service may be blocked on this server";
-    }
+    const errorMessage = `Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
 
     console.error("[Email] Final error after all retries:", errorMessage);
     // Fallback: không throw error, cho phép quy trình tiếp tục
@@ -151,7 +132,7 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
     `;
 
     await sendEmailWithRetry({
-        from: `"LMN Fashion" <${process.env.EMAIL_USER}>`,
+        from: resendFrom,
         to: toEmail,
         subject: `[LMN Fashion] Đơn hàng #LMN-${orderIdStr} đã được xác nhận`,
         html,
