@@ -1,5 +1,13 @@
 const nodemailer = require("nodemailer");
 
+// Verify config trên startup
+const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+if (!emailConfigured) {
+    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS environment variables. Email sending will be disabled.");
+} else {
+    console.log("[INFO] Email credentials configured. EMAIL_USER:", process.env.EMAIL_USER);
+}
+
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
@@ -33,9 +41,10 @@ function formatCurrency(value) {
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
-    // Validate environment variables
+    // Nếu không có email config, không gửi nhưng không throw error
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        throw new Error("EMAIL_USER or EMAIL_PASS not configured. Please check environment variables.");
+        console.warn("[SKIP] Email not configured. Skipping email send to:", mailOptions.to);
+        return { messageId: "DEMO_MODE" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -46,14 +55,12 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
             return result;
         } catch (error) {
             lastError = error;
-            const errorCode = error.code || error.message;
 
             console.error(`[Email] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
                 command: error.command,
-                responseCode: error.responseCode,
-                response: error.response
+                responseCode: error.responseCode
             });
 
             if (attempt < maxRetries) {
@@ -80,11 +87,10 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
         errorMessage = "Email authentication failed. Incorrect credentials or Gmail App Password required.";
     }
 
-    throw new Error(errorMessage);
-}
-
-async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, items, totalAmount, address, phone, paymentMethod }) {
-    const methodLabel = "Thanh toan khi nhan hang (COD)";
+    // Log error nhưng không throw - cho phép order được tạo dù email fail
+    console.error("[Email] Final error after all retries:", errorMessage);
+    // Fallback: không throw error, cho phép quy trình tiếp tục
+    return { messageId: "FAILED_BUT_CONTINUED" };
 
     const itemsHtml = (items || []).map(item => `
         <tr>

@@ -27,8 +27,9 @@ const transporter = nodemailer.createTransport({
 });
 
 // Verify config trên startup
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS environment variables. Email sending will fail.");
+const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+if (!emailConfigured) {
+    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS environment variables. Email sending will be disabled.");
 } else {
     console.log("[INFO] Email credentials configured. EMAIL_USER:", process.env.EMAIL_USER);
 }
@@ -41,9 +42,10 @@ function generateOTP() {
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
-    // Validate environment variables
+    // Nếu không có email config, không gửi
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        throw new Error("EMAIL_USER or EMAIL_PASS not configured. Please check environment variables.");
+        console.warn("[SKIP] Email not configured. Skipping email send.");
+        return { messageId: "DEMO_MODE" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -54,14 +56,12 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
             return result;
         } catch (error) {
             lastError = error;
-            const errorCode = error.code || error.message;
 
             console.error(`[OTP] Attempt ${attempt} failed:`, {
                 code: error.code,
                 message: error.message,
                 command: error.command,
-                responseCode: error.responseCode,
-                response: error.response
+                responseCode: error.responseCode
             });
 
             if (attempt < maxRetries) {
@@ -89,15 +89,22 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     }
 
     throw new Error(errorMessage);
+}
 
-    async function sendOTP(email) {
-        const otp = generateOTP();
+async function sendOTP(email) {
+    const otp = generateOTP();
 
-        const mailOptions = {
-            from: `"LMN FASHION" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: "Mã Xác Thực OTP - LMN FASHION",
-            html: `
+    // Nếu không có email config, chỉ log OTP và return (demo mode)
+    if (!emailConfigured) {
+        console.log(`[DEMO MODE] OTP for ${email}: ${otp}`);
+        return otp;
+    }
+
+    const mailOptions = {
+        from: `"LMN FASHION" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Mã Xác Thực OTP - LMN FASHION",
+        html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
                 <h2 style="color: #333; text-align: center;">Mã Xác Thực OTP</h2>
                 <p>Chào bạn,</p>
@@ -110,24 +117,24 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
                 <p style="font-size: 12px; color: #777; text-align: center;">Đây là email tự động từ LMN Fashion.</p>
             </div>
         `,
-        };
+    };
 
-        try {
-            await sendEmailWithRetry(mailOptions);
-            console.log(`OTP sent via Nodemailer to ${email}: ${otp}`);
-            return otp;
-        } catch (error) {
-            console.error("Lỗi gửi mail qua Nodemailer:", error);
-            // In production we propagate the error so callers can handle it as a failure.
-            // In development (or when NODE_ENV !== 'production') we fallback: log the OTP
-            // and return it so the flow can continue for testing without valid mail creds.
-            if (process.env.NODE_ENV === "production") {
-                throw error;
-            }
+    try {
+        await sendEmailWithRetry(mailOptions);
+        console.log(`OTP sent via Nodemailer to ${email}: ${otp}`);
+        return otp;
+    } catch (error) {
+        console.error("Lỗi gửi mail qua Nodemailer:", error.message);
 
-            console.warn(`FALLBACK: nodemailer failed, returning generated OTP for ${email}:`, otp);
+        // Nếu không phải production, fallback return OTP
+        if (process.env.NODE_ENV !== "production") {
+            console.warn(`FALLBACK: Returning OTP anyway for testing. OTP for ${email}: ${otp}`);
             return otp;
         }
-    }
 
-    module.exports = { generateOTP, sendOTP };
+        // Nếu production, throw error để controller xử lý
+        throw error;
+    }
+}
+
+module.exports = { generateOTP, sendOTP };
