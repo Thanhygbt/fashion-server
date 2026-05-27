@@ -68,6 +68,28 @@ const server = http.createServer((req, res) => {
         return inventoryRoute(req, res);
     }
 
+    // Diagnostic endpoint
+    if (req.url === "/diagnose" && req.method === "GET") {
+        const hasEmailUser = !!process.env.EMAIL_USER;
+        const hasEmailPass = !!process.env.EMAIL_PASS;
+        const emailUserValue = hasEmailUser ? process.env.EMAIL_USER : "NOT_SET";
+        const emailPassValue = hasEmailPass ? "***HIDDEN***" : "NOT_SET";
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({
+            environment: process.env.NODE_ENV || "development",
+            emailConfigured: hasEmailUser && hasEmailPass,
+            emailUser: emailUserValue,
+            emailPass: emailPassValue,
+            port: process.env.PORT || 3000,
+            dbHost: process.env.DB_HOST ? "SET" : "NOT_SET",
+            dbUser: process.env.DB_USER ? "SET" : "NOT_SET",
+            dbName: process.env.DB_NAME ? "SET" : "NOT_SET",
+            frontendUrl: process.env.FRONTEND_URL || "NOT_SET",
+            message: "Email config must be set: EMAIL_USER and EMAIL_PASS"
+        }, null, 2));
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ message: "Route not found" }));
 });

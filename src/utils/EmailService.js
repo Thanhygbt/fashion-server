@@ -2,24 +2,27 @@ const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
-    port: 587,
-    secure: false, // Bắt buộc phải là false khi dùng port 587
+    port: 465,
+    secure: true, // Dùng SSL cho port 465
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
     },
-    // Thêm tùy chọn TLS này để tránh lỗi chứng chỉ nếu có
     tls: {
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
     },
-    // Tăng timeout để tránh lỗi connection timeout trên Render
-    connectionTimeout: 10000, // 10 giây
-    socketTimeout: 10000,     // 10 giây
-    // Tự động đóng kết nối không hoạt động
-    maxConnections: 5,
-    maxMessages: 100,
-    rateDelta: 1000,
-    rateLimit: 5
+    // Cấu hình timeout dài hơn cho Render
+    connectionTimeout: 30000, // 30 giây
+    socketTimeout: 30000,     // 30 giây
+    greetingTimeout: 30000,
+    // Pool connection để tái sử dụng
+    pool: {
+        maxConnections: 3,
+        maxMessages: 100,
+        rateDelta: 1000,
+        rateLimit: 5
+    }
 });
 
 function formatCurrency(value) {
@@ -30,6 +33,11 @@ function formatCurrency(value) {
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
 
+    // Validate environment variables
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        throw new Error("EMAIL_USER or EMAIL_PASS not configured. Please check environment variables.");
+    }
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             console.log(`[Email] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
@@ -38,7 +46,15 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
             return result;
         } catch (error) {
             lastError = error;
-            console.error(`[Email] Attempt ${attempt} failed:`, error.message);
+            const errorCode = error.code || error.message;
+
+            console.error(`[Email] Attempt ${attempt} failed:`, {
+                code: error.code,
+                message: error.message,
+                command: error.command,
+                responseCode: error.responseCode,
+                response: error.response
+            });
 
             if (attempt < maxRetries) {
                 // Chờ trước khi retry (exponential backoff)
@@ -49,7 +65,22 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
         }
     }
 
-    throw new Error(`Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
+    // Format error message based on error code
+    let errorMessage = `Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
+
+    if (lastError?.code === 'ETIMEDOUT') {
+        errorMessage = "Email server connection timeout. Please check network connectivity and try again.";
+    } else if (lastError?.code === 'ECONNREFUSED') {
+        errorMessage = "Email server connection refused. Please verify SMTP settings.";
+    } else if (lastError?.code === 'ENOTFOUND') {
+        errorMessage = "Email server not found. Check SMTP host configuration.";
+    } else if (lastError?.code === 'EAUTH' || lastError?.message?.includes('Invalid login')) {
+        errorMessage = "Email authentication failed. Please verify EMAIL_USER and EMAIL_PASS are correct.";
+    } else if (lastError?.responseCode === 535) {
+        errorMessage = "Email authentication failed. Incorrect credentials or Gmail App Password required.";
+    }
+
+    throw new Error(errorMessage);
 }
 
 async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, items, totalAmount, address, phone, paymentMethod }) {
