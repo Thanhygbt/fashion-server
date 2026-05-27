@@ -104,6 +104,11 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
 async function sendOTP(email) {
     const otp = generateOTP();
 
+    if (smtpDisabled) {
+        console.log(`[FALLBACK] SMTP disabled on Render. OTP for ${email}: ${otp}`);
+        return otp;
+    }
+
     // Nếu không có email config, chỉ log OTP và return (demo mode)
     if (!emailConfigured) {
         console.log(`[DEMO MODE] OTP for ${email}: ${otp}`);
