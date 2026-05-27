@@ -62,8 +62,20 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
         try {
             console.log(`[OTP] Attempt ${attempt}/${maxRetries} -> ${mailOptions.to}`);
 
-            // 👉 ưu tiên Resend
-            if (resendConfigured) {
+            // 👉 ưu tiên Gmail SMTP (để mail thật đến inbox)
+            if (smtpConfigured && transporter) {
+                const result = await transporter.sendMail({
+                    from: `"LMN Fashion" <${emailUser}>`,
+                    to: mailOptions.to,
+                    subject: mailOptions.subject,
+                    html: mailOptions.html
+                });
+
+                return { messageId: result?.messageId || "smtp" };
+            }
+
+            // 👉 fallback Resend
+            if (resendConfigured && resendClient) {
                 const result = await resendClient.emails.send({
                     from: process.env.RESEND_FROM || "LMN Fashion <onboarding@resend.dev>",
                     to: mailOptions.to,
@@ -74,7 +86,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
                 return { messageId: result?.id || "resend" };
             }
 
-            // 👉 fallback SMTP
             const result = await transporter.sendMail({
                 from: `"LMN Fashion" <${emailUser}>`,
                 to: mailOptions.to,

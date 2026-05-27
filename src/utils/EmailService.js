@@ -55,7 +55,19 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
             console.log(`[Email] Attempt ${attempt}/${maxRetries} -> ${mailOptions.to}`);
 
 
-            if (resendConfigured) {
+            if (smtpConfigured && transporter) {
+                const res = await transporter.sendMail({
+                    from: `"LMN Fashion" <${emailUser}>`,
+                    to: mailOptions.to,
+                    subject: mailOptions.subject,
+                    html: mailOptions.html
+                });
+
+                console.log("[Email] Sent via SMTP:", res?.messageId);
+                return { messageId: res?.messageId || "smtp" };
+            }
+
+            if (resendConfigured && resendClient) {
                 const res = await resendClient.emails.send({
                     from: process.env.RESEND_FROM || "LMN Fashion <onboarding@resend.dev>",
                     to: mailOptions.to,
@@ -67,7 +79,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
                 return { messageId: res?.id || "resend" };
             }
 
-            // 👉 fallback SMTP Gmail
             const res = await transporter.sendMail({
                 from: `"LMN Fashion" <${emailUser}>`,
                 to: mailOptions.to,
