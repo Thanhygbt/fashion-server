@@ -11,11 +11,45 @@ const transporter = nodemailer.createTransport({
     // Thêm tùy chọn TLS này để tránh lỗi chứng chỉ nếu có
     tls: {
         rejectUnauthorized: false
-    }
+    },
+    // Tăng timeout để tránh lỗi connection timeout trên Render
+    connectionTimeout: 10000, // 10 giây
+    socketTimeout: 10000,     // 10 giây
+    // Tự động đóng kết nối không hoạt động
+    maxConnections: 5,
+    maxMessages: 100,
+    rateDelta: 1000,
+    rateLimit: 5
 });
 
 function formatCurrency(value) {
     return Number(value || 0).toLocaleString("vi-VN") + " VNĐ";
+}
+
+// Hàm gửi email với retry logic
+async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`[Email] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
+            const result = await transporter.sendMail(mailOptions);
+            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result.messageId);
+            return result;
+        } catch (error) {
+            lastError = error;
+            console.error(`[Email] Attempt ${attempt} failed:`, error.message);
+
+            if (attempt < maxRetries) {
+                // Chờ trước khi retry (exponential backoff)
+                const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+                console.log(`[Email] Retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+    }
+
+    throw new Error(`Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
 }
 
 async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, items, totalAmount, address, phone, paymentMethod }) {
@@ -104,7 +138,7 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
         </div>
     `;
 
-    await transporter.sendMail({
+    await sendEmailWithRetry({
         from: `"LMN Fashion" <${process.env.EMAIL_USER}>`,
         to: toEmail,
         subject: `[LMN Fashion] Đơn hàng #LMN-${orderIdStr} đã được xác nhận`,
