@@ -140,7 +140,6 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
     `;
 
     await sendEmailWithRetry({
-        from: resendFrom,
         to: toEmail,
         subject: `[LMN Fashion] Đơn hàng #LMN-${orderIdStr} đã được xác nhận`,
         html,

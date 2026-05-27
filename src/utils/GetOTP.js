@@ -70,13 +70,12 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
 async function sendOTP(email) {
     const otp = generateOTP();
 
-    if (!resendConfigured) {
-        console.log(`[DEMO MODE] Resend not configured. OTP for ${email}: ${otp}`);
+    if (!smtpConfigured) {
+        console.log(`[DEMO MODE] SMTP not configured. OTP for ${email}: ${otp}`);
         return otp;
     }
 
     const mailOptions = {
-        from: resendFrom,
         to: email,
         subject: "Mã Xác Thực OTP - LMN FASHION",
         html: `
@@ -102,7 +101,7 @@ async function sendOTP(email) {
         return otp;
     }
 
-    console.log(`OTP sent via Resend to ${email}: ${otp}`);
+    console.log(`OTP sent via SMTP to ${email}: ${otp}`);
     return otp;
 }
 
