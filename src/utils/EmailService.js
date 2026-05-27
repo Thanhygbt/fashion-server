@@ -10,6 +10,7 @@ if (smtpConfigured) {
         host: "smtp.gmail.com",
         port: 587,
         secure: false, // STARTTLS
+        family: 4,     // Ép dùng IPv4 (Render không hỗ trợ IPv6 outbound)
         auth: {
             user: emailUser,
             pass: emailPass
