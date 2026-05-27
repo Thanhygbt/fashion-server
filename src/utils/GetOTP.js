@@ -28,6 +28,7 @@ const transporter = nodemailer.createTransport({
 
 // Verify config trên startup
 const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+const smtpDisabled = !!(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
 if (!emailConfigured) {
     console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS environment variables. Email sending will be disabled.");
 } else {
@@ -41,6 +42,11 @@ function generateOTP() {
 // Hàm gửi email với retry logic
 async function sendEmailWithRetry(mailOptions, maxRetries = 3) {
     let lastError;
+
+    if (smtpDisabled) {
+        console.warn("[SKIP] SMTP disabled on Render. Returning fallback mode.");
+        return { messageId: "FALLBACK_MODE", error: "SMTP disabled on Render" };
+    }
 
     // Nếu không có email config, không gửi
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
