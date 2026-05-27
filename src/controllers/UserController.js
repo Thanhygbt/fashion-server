@@ -51,13 +51,13 @@ const sendOTP = async (req, res, body) => {
         }
     }
 
-    if (!data.email || !data.userName) {
-        return sendJson(res, 400, { message: "Thiếu email hoặc username" });
+    if (!data.email) {
+        return sendJson(res, 400, { message: "Thiếu email" });
     }
 
     const result = await userService.sendOTPService(data);
     if (!result.success) return sendJson(res, 400, { message: result.message });
-    sendJson(res, 200, { message: "OTP đã gửi tới email của bạn" });
+    sendJson(res, 200, { message: result.message || "OTP đã gửi tới email của bạn" });
 };
 
 const login = async (req, res, body) => {

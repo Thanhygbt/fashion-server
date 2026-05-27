@@ -11,9 +11,11 @@ const sendOTPService = async (data) => {
             return { success: false, message: "Email đã tồn tại" };
         }
 
-        const userResults = await userModel.findByUserName(userName);
-        if (userResults.length > 0 && userResults[0].status === "active") {
-            return { success: false, message: "Username đã tồn tại" };
+        if (userName) {
+            const userResults = await userModel.findByUserName(userName);
+            if (userResults.length > 0 && userResults[0].status === "active") {
+                return { success: false, message: "Username đã tồn tại" };
+            }
         }
 
         const otp = await sendOTP(email);
