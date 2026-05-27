@@ -1,20 +1,27 @@
 const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
+const resendApiKey = process.env.RESEND_API_KEY;
+
 const smtpConfigured = !!(emailUser && emailPass);
+const resendConfigured = !!resendApiKey;
 
 let transporter;
+let resendClient;
+
+// ================= SMTP =================
 if (smtpConfigured) {
     transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
         port: 587,
-        secure: false, // STARTTLS
-        family: 4,     // Ép dùng IPv4 (Render không hỗ trợ IPv6 outbound)
+        secure: false,
         auth: {
             user: emailUser,
             pass: emailPass
         },
+        family: 4,
         connectionTimeout: 10000,
         greetingTimeout: 10000,
         socketTimeout: 15000,
@@ -22,56 +29,87 @@ if (smtpConfigured) {
             rejectUnauthorized: false
         }
     });
+
     console.log("[INFO] SMTP (Gmail) Transporter configured for user:", emailUser);
-} else {
-    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS. Email sending disabled.");
 }
 
-function formatCurrency(value) {
-    return Number(value || 0).toLocaleString("vi-VN") + " VNĐ";
+// ================= RESEND =================
+if (resendConfigured) {
+    resendClient = new Resend(resendApiKey);
+    console.log("[INFO] Resend client configured");
 }
 
+const mailConfigured = smtpConfigured || resendConfigured;
+
+// ================= RETRY CORE =================
 async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
     let lastError;
 
-    if (!smtpConfigured) {
-        console.warn("[SKIP] SMTP not configured. Skipping email send to:", mailOptions.to);
-        return { messageId: "DEMO_MODE" };
+    if (!mailConfigured) {
+        console.warn("[SKIP] No email provider configured");
+        return { messageId: "NO_PROVIDER" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            console.log(`[Email] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
-            const result = await transporter.sendMail({
+            console.log(`[Email] Attempt ${attempt}/${maxRetries} -> ${mailOptions.to}`);
+
+
+            if (resendConfigured) {
+                const res = await resendClient.emails.send({
+                    from: process.env.RESEND_FROM || "LMN Fashion <onboarding@resend.dev>",
+                    to: mailOptions.to,
+                    subject: mailOptions.subject,
+                    html: mailOptions.html
+                });
+
+                console.log("[Email] Sent via Resend:", res?.id);
+                return { messageId: res?.id || "resend" };
+            }
+
+            // 👉 fallback SMTP Gmail
+            const res = await transporter.sendMail({
                 from: `"LMN Fashion" <${emailUser}>`,
                 to: mailOptions.to,
                 subject: mailOptions.subject,
                 html: mailOptions.html
             });
-            console.log(`[Email] Successfully sent email to ${mailOptions.to}`, result?.messageId || "unknown");
-            return { messageId: result?.messageId || "smtp" };
+
+            console.log("[Email] Sent via SMTP:", res?.messageId);
+            return { messageId: res?.messageId || "smtp" };
+
         } catch (error) {
             lastError = error;
-            console.error(`[Email] Attempt ${attempt} failed:`, {
-                code: error.code,
-                message: error.message,
-                name: error.name
-            });
+            console.error(`[Email] Attempt ${attempt} failed:`, error.message);
 
             if (attempt < maxRetries) {
-                const delayMs = 2000;
-                console.log(`[Email] Retrying in ${delayMs}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delayMs));
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
 
-    const errorMessage = `Failed to send email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
-    console.error("[Email] Final error after all retries:", errorMessage);
-    return { messageId: "FAILED_BUT_CONTINUED", error: errorMessage };
+    return {
+        messageId: "FAILED_BUT_CONTINUED",
+        error: lastError?.message || "Unknown error"
+    };
 }
 
-async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, items, totalAmount, address, phone, paymentMethod }) {
+// ================= FORMAT =================
+function formatCurrency(value) {
+    return Number(value || 0).toLocaleString("vi-VN") + " VNĐ";
+}
+
+
+async function sendOrderConfirmationEmail({
+    toEmail,
+    customerName,
+    orderId,
+    items,
+    totalAmount,
+    address,
+    phone,
+    paymentMethod
+}) {
     const methodLabel = "Thanh toan khi nhan hang (COD)";
 
     const itemsHtml = (items || []).map(item => `
@@ -85,6 +123,7 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
 
     const orderIdStr = String(orderId).padStart(5, "0");
 
+
     const html = `
         <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 640px; margin: auto; background: #fff; color: #111;">
             <div style="background: #000; padding: 40px 48px; text-align: center;">
@@ -96,50 +135,57 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
                 <p style="color: #666; font-size: 14px; margin: 0 0 32px;">
                     Xin chào <strong>${customerName || "Quý khách"}</strong>, cảm ơn bạn đã tin tưởng mua sắm tại LMN Fashion.
                 </p>
+
                 <div style="background: #f9f9f9; padding: 20px 24px; border-left: 3px solid #000; margin-bottom: 32px;">
                     <table style="width: 100%; font-size: 14px;">
                         <tr>
-                            <td style="color: #888; padding: 4px 0;">Mã đơn hàng</td>
-                            <td style="text-align: right; font-weight: 700; color: #000;">#LMN-${orderIdStr}</td>
+                            <td style="color: #888;">Mã đơn hàng</td>
+                            <td style="text-align: right; font-weight: 700;">#LMN-${orderIdStr}</td>
                         </tr>
                         <tr>
-                            <td style="color: #888; padding: 4px 0;">Phương thức</td>
-                            <td style="text-align: right; font-weight: 600;">${methodLabel}</td>
+                            <td style="color: #888;">Phương thức</td>
+                            <td style="text-align: right;">${methodLabel}</td>
                         </tr>
                         <tr>
-                            <td style="color: #888; padding: 4px 0;">Giao tới</td>
+                            <td style="color: #888;">Giao tới</td>
                             <td style="text-align: right;">${address || "—"}</td>
                         </tr>
                         <tr>
-                            <td style="color: #888; padding: 4px 0;">Số điện thoại</td>
+                            <td style="color: #888;">Số điện thoại</td>
                             <td style="text-align: right;">${phone || "—"}</td>
                         </tr>
                     </table>
                 </div>
-                <table style="width: 100%; font-size: 14px; border-collapse: collapse; margin-bottom: 24px;">
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                     <thead>
-                        <tr style="background: #000; color: #fff; text-transform: uppercase; font-size: 12px; letter-spacing: 1px;">
-                            <th style="padding: 12px 10px; text-align: left;">Sản phẩm</th>
-                            <th style="padding: 12px 10px; text-align: center;">SL</th>
-                            <th style="padding: 12px 10px; text-align: right;">Đơn giá</th>
-                            <th style="padding: 12px 10px; text-align: right;">Thành tiền</th>
+                        <tr style="background: #000; color: #fff;">
+                            <th style="padding: 12px;">Sản phẩm</th>
+                            <th style="padding: 12px;">SL</th>
+                            <th style="padding: 12px;">Đơn giá</th>
+                            <th style="padding: 12px;">Thành tiền</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${itemsHtml}
                     </tbody>
                 </table>
-                <div style="text-align: right; margin-bottom: 40px;">
-                    <span style="font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 1px;">Tổng cộng: </span>
-                    <span style="font-size: 22px; font-weight: 900; color: #000;">${formatCurrency(totalAmount)}</span>
+
+                <div style="text-align: right; margin-top: 30px;">
+                    <span style="font-size: 13px;">Tổng cộng:</span>
+                    <span style="font-size: 22px; font-weight: 900;">
+                        ${formatCurrency(totalAmount)}
+                    </span>
                 </div>
-                <p style="font-size: 13px; color: #666; line-height: 1.7; border-top: 1px solid #eee; padding-top: 24px;">
-                    Chúng tôi sẽ xử lý đơn hàng của bạn sớm nhất có thể. Nếu có thắc mắc, vui lòng liên hệ
-                    <a href="mailto:support@lmnfashion.com" style="color: #000;">support@lmnfashion.com</a>.
+
+                <p style="margin-top: 30px; font-size: 13px; color: #666;">
+                    Chúng tôi sẽ xử lý đơn hàng sớm nhất. Liên hệ:
+                    <a href="mailto:support@lmnfashion.com">support@lmnfashion.com</a>
                 </p>
             </div>
-            <div style="background: #f5f5f5; padding: 24px 48px; text-align: center; font-size: 11px; color: #999; letter-spacing: 1px; text-transform: uppercase;">
-                © 2026 LMN Fashion — Minimalist Essence Since 2024
+
+            <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 11px;">
+                © 2026 LMN Fashion
             </div>
         </div>
     `;
@@ -150,7 +196,7 @@ async function sendOrderConfirmationEmail({ toEmail, customerName, orderId, item
         html,
     });
 
-    console.log(`Order confirmation email sent to ${toEmail} for order #${orderId}`);
+    console.log(`[OK] Order email sent -> ${toEmail} (#LMN-${orderIdStr})`);
 }
 
 module.exports = { sendOrderConfirmationEmail };

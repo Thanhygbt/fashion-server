@@ -1,81 +1,110 @@
 const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
+const resendApiKey = process.env.RESEND_API_KEY;
+
 const smtpConfigured = !!(emailUser && emailPass);
+const resendConfigured = !!resendApiKey;
+const mailConfigured = smtpConfigured || resendConfigured;
 
 let transporter;
+let resendClient;
+
+// ================= SMTP (fallback) =================
 if (smtpConfigured) {
     transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
         port: 587,
-        secure: false, // STARTTLS
-        family: 4,     // Ép dùng IPv4 (Render không hỗ trợ IPv6 outbound)
+        secure: false,
         auth: {
             user: emailUser,
             pass: emailPass
         },
-        connectionTimeout: 10000, // 10s để kết nối
-        greetingTimeout: 10000,   // 10s để nhận greeting
-        socketTimeout: 15000,     // 15s idle timeout
+        family: 4,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
         tls: {
             rejectUnauthorized: false
         }
     });
-    console.log("[INFO] SMTP (Gmail) Transporter configured for user:", emailUser);
-} else {
-    console.warn("[WARNING] Missing EMAIL_USER or EMAIL_PASS. Email sending disabled.");
+
+    console.log("[OTP] SMTP ready:", emailUser);
 }
 
+// ================= RESEND (primary) =================
+if (resendConfigured) {
+    resendClient = new Resend(resendApiKey);
+    console.log("[OTP] Resend ready");
+}
+
+if (!mailConfigured) {
+    console.warn("[OTP WARNING] No email provider configured (demo mode)");
+}
+
+// ================= OTP =================
 function generateOTP() {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// ================= SEND CORE =================
 async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
     let lastError;
 
-    if (!smtpConfigured) {
-        console.warn("[SKIP] SMTP not configured. Returning fallback mode.");
-        return { messageId: "FALLBACK_MODE", error: "SMTP configuration not found" };
+    if (!mailConfigured) {
+        console.warn("[OTP] Skipping email (no provider)");
+        return { messageId: "FALLBACK_MODE" };
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            console.log(`[OTP] Attempt ${attempt}/${maxRetries} to send email to ${mailOptions.to}`);
+            console.log(`[OTP] Attempt ${attempt}/${maxRetries} -> ${mailOptions.to}`);
+
+            // 👉 ưu tiên Resend
+            if (resendConfigured) {
+                const result = await resendClient.emails.send({
+                    from: process.env.RESEND_FROM || "LMN Fashion <onboarding@resend.dev>",
+                    to: mailOptions.to,
+                    subject: mailOptions.subject,
+                    html: mailOptions.html
+                });
+
+                return { messageId: result?.id || "resend" };
+            }
+
+            // 👉 fallback SMTP
             const result = await transporter.sendMail({
                 from: `"LMN Fashion" <${emailUser}>`,
                 to: mailOptions.to,
                 subject: mailOptions.subject,
                 html: mailOptions.html
             });
-            console.log(`[OTP] Successfully sent OTP email to ${mailOptions.to}`, result?.messageId || "unknown");
+
             return { messageId: result?.messageId || "smtp" };
+
         } catch (error) {
             lastError = error;
-            console.error(`[OTP] Attempt ${attempt} failed:`, {
-                code: error.code,
-                message: error.message,
-                name: error.name
-            });
+            console.error("[OTP ERROR]", error.message);
 
             if (attempt < maxRetries) {
-                const delayMs = 2000;
-                console.log(`[OTP] Retrying in ${delayMs}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delayMs));
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
 
-    const errorMessage = `Failed to send OTP email after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`;
-    console.warn(`[OTP] Falling back: ${errorMessage}`);
-    return { messageId: "FALLBACK_MODE", error: errorMessage };
+    return {
+        messageId: "FAILED_BUT_CONTINUED",
+        error: lastError?.message || "unknown error"
+    };
 }
 
 async function sendOTP(email) {
     const otp = generateOTP();
 
-    if (!smtpConfigured) {
-        console.log(`[DEMO MODE] SMTP not configured. OTP for ${email}: ${otp}`);
+    if (!mailConfigured) {
+        console.log(`[DEMO MODE] OTP for ${email}: ${otp}`);
         return otp;
     }
 
@@ -94,17 +123,17 @@ async function sendOTP(email) {
                 <hr style="border: none; border-top: 1px solid #eee;">
                 <p style="font-size: 12px; color: #777; text-align: center;">Đây là email tự động từ LMN Fashion.</p>
             </div>
-        `,
+        `
     };
 
     const result = await sendEmailWithRetry(mailOptions);
 
     if (result.messageId === "FALLBACK_MODE" || result.messageId === "FAILED_BUT_CONTINUED") {
-        console.log(`[FALLBACK] OTP for ${email}: ${otp} - Email send failed, returning OTP for testing`);
+        console.log(`[FALLBACK] OTP for ${email}: ${otp}`);
         return otp;
     }
 
-    console.log(`OTP sent via Gmail SMTP to ${email}: ${otp}`);
+    console.log(`[OTP SENT] ${email} (messageId=${result.messageId})`);
     return otp;
 }
 

@@ -72,13 +72,16 @@ const server = http.createServer((req, res) => {
     if (req.url === "/diagnose" && req.method === "GET") {
         const hasEmailUser = !!process.env.EMAIL_USER;
         const hasEmailPass = !!process.env.EMAIL_PASS;
+        const hasResendApiKey = !!process.env.RESEND_API_KEY;
         const emailUserValue = hasEmailUser ? process.env.EMAIL_USER : "NOT_SET";
         const emailPassValue = hasEmailPass ? "***HIDDEN***" : "NOT_SET";
 
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({
             environment: process.env.NODE_ENV || "development",
-            emailConfigured: hasEmailUser && hasEmailPass,
+            emailConfigured: (hasEmailUser && hasEmailPass) || hasResendApiKey,
+            smtpConfigured: hasEmailUser && hasEmailPass,
+            resendConfigured: hasResendApiKey,
             emailUser: emailUserValue,
             emailPass: emailPassValue,
             port: process.env.PORT || 3000,
@@ -86,7 +89,7 @@ const server = http.createServer((req, res) => {
             dbUser: process.env.DB_USER ? "SET" : "NOT_SET",
             dbName: process.env.DB_NAME ? "SET" : "NOT_SET",
             frontendUrl: process.env.FRONTEND_URL || "NOT_SET",
-            message: "Email config must be set: EMAIL_USER and EMAIL_PASS"
+            message: "Email config must be set: EMAIL_USER/EMAIL_PASS or RESEND_API_KEY"
         }, null, 2));
     }
 
