@@ -1,16 +1,12 @@
 const nodemailer = require("nodemailer");
-const { Resend } = require("resend");
 
 const emailUser = process.env.EMAIL_USER;
 const emailPass = process.env.EMAIL_PASS;
-const resendApiKey = process.env.RESEND_API_KEY;
 
 const smtpConfigured = !!(emailUser && emailPass);
-const resendConfigured = !!resendApiKey;
-const mailConfigured = smtpConfigured || resendConfigured;
+const mailConfigured = smtpConfigured;
 
 let transporter;
-let resendClient;
 
 // ================= SMTP (fallback) =================
 if (smtpConfigured) {
@@ -32,12 +28,6 @@ if (smtpConfigured) {
     });
 
     console.log("[OTP] SMTP ready:", emailUser);
-}
-
-// ================= RESEND (primary) =================
-if (resendConfigured) {
-    resendClient = new Resend(resendApiKey);
-    console.log("[OTP] Resend ready");
 }
 
 if (!mailConfigured) {
@@ -62,7 +52,7 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
         try {
             console.log(`[OTP] Attempt ${attempt}/${maxRetries} -> ${mailOptions.to}`);
 
-            // 👉 ưu tiên Gmail SMTP (để mail thật đến inbox)
+            // 👉 Gmail SMTP
             if (smtpConfigured && transporter) {
                 const result = await transporter.sendMail({
                     from: `"LMN Fashion" <${emailUser}>`,
@@ -72,18 +62,6 @@ async function sendEmailWithRetry(mailOptions, maxRetries = 2) {
                 });
 
                 return { messageId: result?.messageId || "smtp" };
-            }
-
-            // 👉 fallback Resend
-            if (resendConfigured && resendClient) {
-                const result = await resendClient.emails.send({
-                    from: process.env.RESEND_FROM || "LMN Fashion <onboarding@resend.dev>",
-                    to: mailOptions.to,
-                    subject: mailOptions.subject,
-                    html: mailOptions.html
-                });
-
-                return { messageId: result?.id || "resend" };
             }
 
             const result = await transporter.sendMail({
