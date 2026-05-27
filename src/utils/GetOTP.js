@@ -133,4 +133,6 @@ async function sendOTP(email) {
 
     console.log(`OTP sent via Nodemailer to ${email}: ${otp}`);
     return otp;
-    module.exports = { generateOTP, sendOTP };
+}
+
+module.exports = { generateOTP, sendOTP };
