@@ -17,6 +17,7 @@ if (smtpConfigured) {
             user: emailUser,
             pass: emailPass
         },
+        pool:true,
         family: 4,
         connectionTimeout: 10000,
         greetingTimeout: 10000,

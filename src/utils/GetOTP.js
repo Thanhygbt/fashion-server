@@ -19,6 +19,7 @@ if (smtpConfigured) {
             pass: emailPass
         },
         family: 4,
+        pool:true,
         connectionTimeout: 10000,
         greetingTimeout: 10000,
         socketTimeout: 15000,
